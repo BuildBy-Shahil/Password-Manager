@@ -52,9 +52,9 @@ PasswordManager/
 | Column | Type |
 |--------|------|
 | id | INTEGER PRIMARY KEY AUTOINCREMENT |
-| site | TEXT | NOT NULL |
-| user_email | TEXT | NOT NULL |
-| password | TEXT (Encrypted) | NOT NULL |
+| site | TEXT  NOT NULL |
+| user_email | TEXT  NOT NULL |
+| password | TEXT (Encrypted)  NOT NULL |
 
 ---
 
