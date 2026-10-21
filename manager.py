@@ -70,7 +70,7 @@ class Manager:
         except sqlite3.Error as e:
             self.logger.log_err(f"Database deletion failed for entry ID: {id_}. Error {type(e).__name__}")
 
-    def update_daa(self, site, user, password, id_:int):
+    def update_data(self, site, user, password, id_:int):
         try:
             self.curr.execute("""UPDATE password SET site = ?, user_email = ?, password = ? WHERE id = ?""", [site, user, password, id_])
             self.conn.commit()
