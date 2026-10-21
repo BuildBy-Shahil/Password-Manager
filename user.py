@@ -1,5 +1,7 @@
 import os
 import sys
+from pathlib import Path
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMainWindow, QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton
 from PyQt6.uic import loadUi
 from cryptography.fernet import Fernet
@@ -9,6 +11,7 @@ from tkinter import messagebox
 from PyQt6.QtGui import QFont
 from pass_generator import RandomPassword
 from log import Log
+from PyQt6.QtWidgets import QMessageBox
 
 class DialogBox(QDialog):
     def __init__(self, parent=None):
@@ -138,7 +141,8 @@ class User(QMainWindow):
         super().__init__()
         self.logger = Log
         self.manager = Manager()
-        loadUi("mainwindow.ui", self)
+        ui_path = Path(__file__).resolve().parent / "mainwindow.ui"
+        loadUi(str(ui_path), self)
         self.password_entry.setEchoMode(QLineEdit.EchoMode.Password)
         self.submit_btn.clicked.connect(self.get_data)
         self.display_pass.clicked.connect(self.display)
@@ -155,9 +159,14 @@ class User(QMainWindow):
 
         fl = os.path.join(dir, "secret.key")
 
-        with open (fl, "wb") as file:
-            key = Fernet.generate_key()
-            file.write(key)
+        file_path = Path(fl)
+        if not file_path.exists():
+            with open (fl, "wb") as file:
+                key = Fernet.generate_key()
+                file.write(key)
+                print("Key Created")
+        else:
+            print("Key exist")
 
         with open(fl, "rb") as file:
             self.cypher_suit = Fernet(file.read())
@@ -182,14 +191,13 @@ class User(QMainWindow):
         password = self.password_entry.text()
 
         pass_byts = password.encode("utf-8") # First convert data to bytes
-        encrypted_password = self.cypher_suit.encrypt(pass_byts) # Then decrypt data
+        encrypted_password = self.cypher_suit.encrypt(pass_byts) # Then encrypt data
 
         if site_name and user_email and password:
             self.site_entry.clear()
             self.user_entry.clear()
             self.password_entry.clear()
             self.manager.store_data([site_name, user_email, encrypted_password])
-
         else:
             messagebox.showerror(title="Fields", message="Please fill all the fields!")
     def display(self):
@@ -236,55 +244,103 @@ class User(QMainWindow):
                 self.listWidget.addItem(list_data)
 
     def copy_password(self):
-        selected_text = self.listWidget.currentItem()
+        selected_item = self.listWidget.currentItem()
+
+        if selected_item is None:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select an account first."
+            )
+            return
+
         try:
-            if selected_text.text() is not None:
-                id_ = selected_text.text()[4]
+            # Extract the complete ID, even if it has multiple digits.
+            id_ = int(selected_item.text().split(" ---- ", 1)[0].replace("Id: ", ""))
 
-                encrypted_password = self.manager.get_password(int(id_))
-                if encrypted_password:
-                    decrypted_bytes = self.cypher_suit.decrypt(encrypted_password[0])
-                    decrypted_password = decrypted_bytes.decode("utf-8")
+            encrypted_password = self.manager.get_password(id_)
 
-                    pyperclip.copy(decrypted_password)
-                    messagebox.showinfo(title="Password", message=f"Your Password is Copied -> {decrypted_password}")
+            if encrypted_password:
+                decrypted_bytes = self.cypher_suit.decrypt(
+                    encrypted_password[0]
+                )
+                decrypted_password = decrypted_bytes.decode("utf-8")
+
+                pyperclip.copy(decrypted_password)
+
+                QMessageBox.information(
+                    self,
+                    "Password",
+                    "Your password has been copied to the clipboard."
+                )
+
         except Exception as e:
             self.logger.log_err(e)
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Could not retrieve the password."
+            )
 
     def delete_data(self):
-        selected_text = self.listWidget.currentItem()
+        selected_item = self.listWidget.currentItem()
+
+        if selected_item is None:
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select an account to delete."
+            )
+            return
+
+        id_ = int(
+            selected_item.text().split(" ---- ", 1)[0].replace("Id: ", "")
+        )
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            "Are you sure you want to delete this account?",
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            # if the user chose No
+            return
+
+        self.manager.delete_data(id_)
+
         current_row = self.listWidget.currentRow()
-
-        if selected_text.text() is not None:
-            """Delect Item from Data_Base"""
-            id_ = int(selected_text.text()[4])
-            self.manager.delete_data(id_)
-
-            if current_row != -1:
-                """Delect Item from ListBox"""
-                item = self.listWidget.takeItem(current_row)
-                del item
+        self.listWidget.takeItem(current_row)
 
     def edit_data(self):
         selected_text = self.listWidget.currentItem()
         if selected_text:
-            id_ = int(selected_text.text()[4])
+            id_ = int(selected_text.text().split(" ---- ", 1)[0].replace("Id: ", ""))
             data = self.manager.get_by_id(id_)
 
             dialog = DialogBox(self)
+            dialog.site_entry.setText(data[1])
+            dialog.user_email_entry.setText(data[2])
+
+            decrypted_password = self.cypher_suit.decrypt(data[3]).decode("utf-8")
+            dialog.password_entry.setText(decrypted_password)
+
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 site_name, user_email, password = dialog.get_data()
                 if not site_name and not user_email and not password:
                     """If user change their mind and do not want update, then eat five-star and do nothing"""
                     pass
                 else:
-                    password_byte = password.encode("utf-8")
-                    encrypt_pass = self.cypher_suit.encrypt(password_byte)
-
                     site = site_name if site_name else data[1]
                     u_e = user_email if user_email else data[2]
-                    pass_ = encrypt_pass if encrypt_pass else data[3]
-                    self.manager.update_daa(site, u_e, pass_, id_)
+                    if password:
+                        pass_ = self.cypher_suit.encrypt(password.encode("utf-8"))
+                    else:
+                        pass_ = data[3]
+                    self.manager.update_data(site, u_e, pass_, id_)
+                    self.display_all()
             else:
                 return
         else:
